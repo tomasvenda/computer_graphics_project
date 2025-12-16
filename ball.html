@@ -15,16 +15,26 @@
         view: mat4x4f,
         model: mat4x4f,
         normal: mat4x4f,
-        lightViewProj: mat4x4f
+        lightViewProj: mat4x4f,
+        params: vec4f
     };
     @group(0) @binding(0) var<uniform> uniforms : Uniforms;
     @group(0) @binding(1) var shadowMap: texture_depth_2d;
     @group(0) @binding(2) var shadowSampler: sampler_comparison;
+    @group(0) @binding(3) var grassTexture: texture_2d<f32>;
+    @group(0) @binding(4) var grassSampler: sampler;
+    @group(0) @binding(5) var woodTexture: texture_2d<f32>;
+    @group(0) @binding(6) var woodSampler: sampler;
+    @group(0) @binding(7) var ballTexture: texture_cube<f32>;
+    @group(0) @binding(8) var ballSampler: sampler;
 
     struct VSOut {
         @builtin(position) position: vec4f,
-        @location(0) color: vec3f,
+        @location(0) vertexColor: vec3f,
         @location(1) shadowPos: vec3f,
+        @location(2) uv: vec2f,
+        @location(3) diffuseFactor: f32,
+        @location(4) localPos: vec3f,
     };
 
     @vertex
@@ -32,12 +42,14 @@
     {
         const w_i = normalize(vec3(-1.0, 1.75, 1.0));
         let n = normalize((uniforms.normal*inNormal).xyz);
-        let k_d = inPos.xyz*0.5 + 0.5;
+        let k_d = inPos.xyz*0.3 + 0.5;
         var vsOut: VSOut;
         vsOut.position = uniforms.proj*uniforms.view*uniforms.model*inPos;
         
         let diffuse = max(dot(n, w_i), 0.0);
-        vsOut.color = k_d * diffuse;
+        vsOut.diffuseFactor = diffuse;
+        vsOut.vertexColor = k_d;
+        vsOut.localPos = inPos.xyz;
 
         // Shadow calculation
         let posFromLight = uniforms.lightViewProj * uniforms.model * inPos;
@@ -47,11 +59,21 @@
             posFromLight.z
         );
 
+        // Planar Mapping for UVs based on object space position
+        // Scale by s2 to make the texture repeat more frequently
+        if (uniforms.params.x > 2.5) {
+            // Cubemap uses localPos, so UV is not strictly needed, but we can set it to 0
+            vsOut.uv = vec2f(0.0, 0.0);
+        } else {
+            // Planar Mapping for Floor/Walls
+            vsOut.uv = inPos.xz * 2; 
+        }
+
         return vsOut;
     }
 
     @fragment
-    fn main_fs(@location(0) inColor: vec3f, @location(1) shadowPos: vec3f) -> @location(0) vec4f
+    fn main_fs(@location(0) inVertexColor: vec3f, @location(1) shadowPos: vec3f, @location(2) uv: vec2f, @location(3) inDiffuseFactor: f32, @location(4) localPos: vec3f) -> @location(0) vec4f
     {
         var shadow = 0.0;
         // PCF (Percentage-Closer Filtering)
@@ -76,8 +98,18 @@
             shadow = 1.0;
         }
 
+        var albedo = inVertexColor;
+        if (uniforms.params.x > 0.5 && uniforms.params.x < 1.5) {
+            albedo = textureSample(grassTexture, grassSampler, uv).rgb;
+        } else if (uniforms.params.x > 1.5 && uniforms.params.x < 2.5) {
+            albedo = textureSample(woodTexture, woodSampler, uv).rgb;
+        } else if (uniforms.params.x > 2.5) {
+            let direction = normalize(localPos);
+            albedo = textureSample(ballTexture, ballSampler, direction).rgb;
+        }
+
         let ambient = 0.5;
-        let finalColor = inColor * (ambient + (1.0 - ambient) * shadow);
+        let finalColor = albedo * (ambient + (1.0 - ambient) * inDiffuseFactor * shadow);
 
         return vec4f(finalColor, 1.0);
     }

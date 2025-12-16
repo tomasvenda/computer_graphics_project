@@ -67,6 +67,66 @@ async function start()
     await setupTextureSystem(device, canvasFormat);
     createFinishDecal(device);
 
+    // --- Load Grass Texture ---
+    const grassImg = await loadImageBitmap('grass.jpg');
+    const grassTexture = device.createTexture({
+        size: [grassImg.width, grassImg.height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    device.queue.copyExternalImageToTexture(
+        { source: grassImg },
+        { texture: grassTexture },
+        [grassImg.width, grassImg.height]
+    );
+
+    const grassSampler = device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+        addressModeU: 'repeat', // Repeat horizontally
+        addressModeV: 'repeat', // Repeat vertically
+    });
+
+    // --- Load Wood Texture ---
+    const woodImg = await loadImageBitmap('wood.jpg');
+    const woodTexture = device.createTexture({
+        size: [woodImg.width, woodImg.height, 1],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    device.queue.copyExternalImageToTexture(
+        { source: woodImg },
+        { texture: woodTexture },
+        [woodImg.width, woodImg.height]
+    );
+
+    const woodSampler = device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+        addressModeU: 'repeat',
+        addressModeV: 'repeat',
+    });
+
+    // --- Load Ball Texture (Cubemap) ---
+    const cubemapUrls = [
+        'tennis/px.png', // +X
+        'tennis/nx.png', // -X
+        'tennis/py.png', // +Y
+        'tennis/ny.png', // -Y
+        'tennis/pz.png', // +Z
+        'tennis/nz.png', // -Z
+    ];
+    const ballTexture = await loadCubemap(device, cubemapUrls);
+
+    const ballSampler = device.createSampler({
+        magFilter: 'linear',
+        minFilter: 'linear',
+        addressModeU: 'clamp-to-edge',
+        addressModeV: 'clamp-to-edge',
+        addressModeW: 'clamp-to-edge',
+    });
+    // ---------------------------
+
     // --- Floor (kinematic) ---
     var block = new Object();
     createBlock(device, block); // mass is now 0 inside createBlock()
@@ -178,8 +238,28 @@ async function start()
     });
     // ------------------------
 
+    var uniformBuffers = [];
+    var bindGroups = [];
+    var shadowBindGroups = [];
+
+    // Create a bind group layout that includes the grass texture
+    const bindGroupLayout = device.createBindGroupLayout({
+        entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
+            { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'comparison' } },
+            { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} }, // Grass Texture
+            { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, // Grass Sampler
+            { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: {} }, // Wood Texture
+            { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, // Wood Sampler
+            { binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { viewDimension: 'cube' } }, // Ball Texture
+            { binding: 8, visibility: GPUShaderStage.FRAGMENT, sampler: {} }, // Ball Sampler
+        ]
+    });
+
+    // Update pipeline to use this layout
     const pipeline = device.createRenderPipeline({
-        layout: 'auto',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }), // Use explicit layout
         vertex: {
             module: wgsl,
             entryPoint: 'main_vs',
@@ -237,23 +317,25 @@ async function start()
     lightProj = mult(M_st, lightProj); // Apply WebGPU Z-correction
     let lightViewProj = mult(lightProj, lightView);
 
-    var uniformBuffers = [];
-    var bindGroups = [];
-    var shadowBindGroups = [];
-
     for(let i = 0; i < rigidBodies.length; ++i)
     {
         uniformBuffers.push(device.createBuffer({
-            size: 5*sizeof['mat4'],
+            size: 5*sizeof['mat4'] + 16, // Add space for vec4 params
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         }));
         
         bindGroups.push(device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
+            layout: bindGroupLayout,
             entries: [
                 { binding: 0, resource: { buffer: uniformBuffers[i] } },
                 { binding: 1, resource: shadowDepthView },
                 { binding: 2, resource: shadowSampler },
+                { binding: 3, resource: grassTexture.createView() },
+                { binding: 4, resource: grassSampler },
+                { binding: 5, resource: woodTexture.createView() },
+                { binding: 6, resource: woodSampler },
+                { binding: 7, resource: ballTexture.createView({ dimension: 'cube' }) },
+                { binding: 8, resource: ballSampler },
             ],
         }));
 
@@ -269,6 +351,17 @@ async function start()
         device.queue.writeBuffer(uniformBuffers[i], 2*sizeof['mat4'], flatten(M));
         device.queue.writeBuffer(uniformBuffers[i], 3*sizeof['mat4'], flatten(N));
         device.queue.writeBuffer(uniformBuffers[i], 4*sizeof['mat4'], flatten(lightViewProj));
+        
+        // Write params: .x = useTexture (1.0 for floor, 2.0 for walls, 3.0 for ball, 0.0 for others)
+        let params = vec4(0, 0, 0, 0);
+        if (i === 0) {
+            params = vec4(1, 0, 0, 0); // Floor -> Grass
+        } else if (i === rigidBodies.length - 1) {
+            params = vec4(3, 0, 0, 0); // Ball -> Football
+        } else {
+            params = vec4(2, 0, 0, 0); // Walls -> Wood
+        }
+        device.queue.writeBuffer(uniformBuffers[i], 5*sizeof['mat4'], flatten(params));
     }
 
     // Use time-stamped animation
@@ -1045,6 +1138,31 @@ async function loadImageBitmap(url) {
     const res = await fetch(url);
     const blob = await res.blob();
     return await createImageBitmap(blob, { colorSpaceConversion: 'none' });
+}
+
+async function loadCubemap(device, urls) {
+    const promises = urls.map(url => loadImageBitmap(url));
+    const images = await Promise.all(promises);
+    
+    const width = images[0].width;
+    const height = images[0].height;
+
+    const texture = device.createTexture({
+        dimension: '2d',
+        size: [width, height, 6],
+        format: 'rgba8unorm',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+
+    for (let i = 0; i < 6; ++i) {
+        device.queue.copyExternalImageToTexture(
+            { source: images[i] },
+            { texture: texture, origin: [0, 0, i] },
+            [width, height]
+        );
+    }
+
+    return texture;
 }
 
 async function setupTextureSystem(device, canvasFormat) {
