@@ -1376,15 +1376,17 @@ async function setupTextureSystem(device, canvasFormat, shadowDepthView, shadowS
     });
 
     // 6. Create Uniform Buffer & Bind Group
+    const textureUniformBufferSize = 128; // 2 * mat4x4f (mvp + lightMvp)
     textureUniformBuffer = device.createBuffer({
-        size: 128,
+        label: 'finish-decal-uniform-buffer',
+        size: textureUniformBufferSize,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
     textureBindGroup = device.createBindGroup({
         layout: texturePipeline.getBindGroupLayout(0),
         entries: [
-            { binding: 0, resource: { buffer: textureUniformBuffer } },
+            { binding: 0, resource: { buffer: textureUniformBuffer, offset: 0, size: textureUniformBufferSize } },
             { binding: 1, resource: sampler },
             { binding: 2, resource: texture.createView() },
             { binding: 3, resource: shadowDepthView },
