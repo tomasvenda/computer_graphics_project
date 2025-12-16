@@ -150,9 +150,6 @@ async function start()
         format: canvasFormat,
     });
 
-    await setupTextureSystem(device, canvasFormat);
-    createFinishDecal(device);
-
     // --- Load Grass Texture ---
     const grassImg = await loadImageBitmap('grass.jpg');
     const grassTexture = device.createTexture({
@@ -256,6 +253,9 @@ async function start()
         },
     });
     // ------------------------
+
+    // Goal/decal rendering needs access to the shadow map too
+    await setupTextureSystem(device, canvasFormat, shadowDepthView, shadowSampler);
 
     var uniformBuffers = [];
     var bindGroups = [];
@@ -646,9 +646,13 @@ async function start()
             // so the decal must use the same corrected projection or depth testing will be wrong.
             const correctedP = mult(M_st, P);
             let mvp = mult(correctedP, mult(V, finishLineObj.modelMatrix));
+
+            // Shadow-space MVP for the decal
+            let lightMvp = mult(lightViewProj, finishLineObj.modelMatrix);
             
-            // Upload Matrix
+            // Upload Matrices
             device.queue.writeBuffer(textureUniformBuffer, 0, flatten(mvp));
+            device.queue.writeBuffer(textureUniformBuffer, 64, flatten(lightMvp));
             
             pass.draw(6);
         }
@@ -1304,7 +1308,7 @@ async function loadCubemap(device, urls) {
     return texture;
 }
 
-async function setupTextureSystem(device, canvasFormat) {
+async function setupTextureSystem(device, canvasFormat, shadowDepthView, shadowSampler) {
     const url = 'goal.png'; 
     const img = await loadImageBitmap(url);
 
@@ -1373,7 +1377,7 @@ async function setupTextureSystem(device, canvasFormat) {
 
     // 6. Create Uniform Buffer & Bind Group
     textureUniformBuffer = device.createBuffer({
-        size: 64,
+        size: 128,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -1382,7 +1386,9 @@ async function setupTextureSystem(device, canvasFormat) {
         entries: [
             { binding: 0, resource: { buffer: textureUniformBuffer } },
             { binding: 1, resource: sampler },
-            { binding: 2, resource: texture.createView() }
+            { binding: 2, resource: texture.createView() },
+            { binding: 3, resource: shadowDepthView },
+            { binding: 4, resource: shadowSampler }
         ]
     });
     

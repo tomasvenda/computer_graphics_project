@@ -101,8 +101,7 @@ canvas {
     border-radius: 15px;
     text-align: center;
     box-shadow: 0 0 50px rgba(46, 204, 113, 0.5);
-    /* use flex to center children (heading, paragraph, button) */
-    display: flex;
+    display: none; /* Hidden by default to avoid initial flash when loading the page first time*/
     flex-direction: column;
     align-items: center;
     justify-content: center;
