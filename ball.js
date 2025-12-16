@@ -26,14 +26,100 @@ const MAX_TILT = 0.35;
 var currentTilt = { x: 0, z: 0 };
 
 // Grid Coordinates
-const START_GRID = { x: 5, y: 0 };
-const END_GRID   = { x: 6, y: 0 };
+var START_GRID = { x: 5, y: 0 };
+var END_GRID   = { x: 6, y: 0 };
 
 // Game State
 var gameWon = false;
+var currentLevelIndex = 0;
+var unlockedLevelIndex = 0;
+var currentBallTexture = 'tennis'; // 'tennis' or 'jabulani'
+
+// Level Definitions
+const levels = [
+    {
+        // Level 1: Simple
+        start: { x: 0, y: 0 },
+        end: { x: 7, y: 7 },
+        walls: [
+            { type: 'vertical', x: 2, y: [0, 4] },
+            { type: 'horizontal', x: [2, 3], y: 4 },
+            { type: 'horizontal', x: [4, 6], y: 4 },
+            { type: 'vertical', x: 5, y: [4, 8] },
+            { type: 'vertical', x: 7, y: [0, 1] }
+        ]
+    },
+    {
+        // Level 2: Moderate
+        start: { x: 0, y: 0 },
+        end: { x: 7, y: 0 },
+        walls: [
+            { type: 'vertical', x: 2, y: [1, 6] },
+            { type: 'vertical', x: 4, y: [2, 6] },
+            { type: 'vertical', x: 4, y: [7, 8] },
+            { type: 'vertical', x: 6, y: [0, 6] },
+            { type: 'horizontal', x: [0, 2], y: 4 },
+            { type: 'horizontal', x: [4, 6], y: 4 }
+        ]
+    },
+    {
+        // Level 3: Harder
+        start: { x: 4, y: 4 },
+        end: { x: 0, y: 0 },
+        walls: [
+            { type: 'vertical', x: 2, y: [2, 3] },
+            { type: 'vertical', x: 2, y: [4, 6] },
+            { type: 'vertical', x: 6, y: [2, 6] },
+            { type: 'horizontal', x: [0, 6], y: 2 },
+            { type: 'horizontal', x: [2, 6], y: 6 },
+            { type: 'horizontal', x: [5, 8], y: 7 },
+            { type: 'vertical', x: 4, y: [1, 3] },
+            { type: 'vertical', x: 4, y: [4, 7] },
+
+        ]
+    },
+    {
+        // Level 4: Complex
+        start: { x: 0, y: 7 },
+        end: { x: 7, y: 0 },
+        walls: [
+            { type: 'vertical', x: 1, y: [1, 7] },
+            { type: 'vertical', x: 3, y: [0, 6] },
+            { type: 'vertical', x: 5, y: [2, 8] },
+            { type: 'vertical', x: 7, y: [0, 6] },
+            { type: 'horizontal', x: [1, 3], y: 1 },
+            { type: 'horizontal', x: [3, 5], y: 7 },
+            { type: 'horizontal', x: [5, 7], y: 1 }
+        ]
+    },
+    {
+        // Level 5: The Original Maze (Hardest)
+        start: { x: 5, y: 0 },
+        end: { x: 6, y: 0 },
+        walls: [
+            { type: 'vertical', x: 2, y: [2, 7] },
+            { type: 'vertical', x: 3, y: [2, 5] },
+            { type: 'vertical', x: 3, y: [6, 8] },
+            { type: 'vertical', x: 5, y: [5, 7] },
+            { type: 'vertical', x: 6, y: [0, 2] },
+            { type: 'vertical', x: 6, y: [7, 8] },
+            { type: 'vertical', x: 7, y: [0, 2] },
+            { type: 'horizontal', x: [0, 1], y: 2 },
+            { type: 'horizontal', x: [2, 6], y: 2 },
+            { type: 'horizontal', x: [1, 2], y: 3 },
+            { type: 'horizontal', x: [3, 4], y: 3 },
+            { type: 'horizontal', x: [0, 1], y: 4 },
+            { type: 'horizontal', x: [5, 8], y: 4 },
+            { type: 'horizontal', x: [3, 7], y: 5 },
+            { type: 'horizontal', x: [1, 2], y: 6 }
+        ]
+    }
+];
 
 // --- NEW: store border refs so we can update them with the floor ---
 var borders = [];
+var borderLocalOffsets = [];
+var ballTexture = null;
 
 //Ammojs Initialization
 Ammo().then(start)
@@ -116,7 +202,7 @@ async function start()
         'tennis/pz.png', // +Z
         'tennis/nz.png', // -Z
     ];
-    const ballTexture = await loadCubemap(device, cubemapUrls);
+    ballTexture = await loadCubemap(device, cubemapUrls);
 
     const ballSampler = device.createSampler({
         magFilter: 'linear',
@@ -127,76 +213,9 @@ async function start()
     });
     // ---------------------------
 
-    // --- Floor (kinematic) ---
-    var block = new Object();
-    createBlock(device, block); // mass is now 0 inside createBlock()
-
-    let map = ['border', 'border', 'border', 'border'];
-
-    const floorHalfX = 75 * 0.5;
-    const floorHalfZ = 75 * 0.5;
-    const floorHalfY = 2 * 0.5;
-
-    const t = 2;   // border thickness
-    const h = 8;   // border height
-    const yBorder = floorHalfY + h * 0.5; // sits on top of floor
-
-    borders = [];
-    borderLocalOffsets = [];
-
-    for (let i = 0; i < 4; ++i) {
-      let border = new Object();
-
-      // local offsets relative to floor center
-      let local = vec3(0, yBorder, 0);
-      let scale = { x: 79, y: h, z: t };
-
-      if (i === 0) { // +Z
-        local = vec3(0, yBorder, +(floorHalfZ + t * 0.5));
-        scale = { x: 79, y: h, z: t };
-      } else if (i === 1) { // -Z
-        local = vec3(0, yBorder, -(floorHalfZ + t * 0.5));
-        scale = { x: 79, y: h, z: t };
-      } else if (i === 2) { // +X
-        local = vec3(+(floorHalfX + t * 0.5), yBorder, 0);
-        scale = { x: t, y: h, z: 79 };
-      } else if (i === 3) { // -X
-        local = vec3(-(floorHalfX + t * 0.5), yBorder, 0);
-        scale = { x: t, y: h, z: 79 };
-      }
-
-      // Borders must be kinematic if they move with the floor
-      createKinematicBox(device, border, {
-        pos: { x: 0, y: 0, z: 0 },        // will be set each frame
-        scale,
-        quat: { x: 0, y: 0, z: 0, w: 1 }
-      });
-
-      borders.push(border);
-      borderLocalOffsets.push(local);
-    }
-
-    const myWalls = [
-      { type: 'vertical', x: 2, y: [2, 7] },
-      { type: 'vertical', x: 3, y: [2, 5] },
-      { type: 'vertical', x: 3, y: [6, 8] },
-      { type: 'vertical', x: 5, y: [5, 7] },
-      { type: 'vertical', x: 6, y: [0, 2] },
-      { type: 'vertical', x: 6, y: [7, 8] },
-      { type: 'vertical', x: 7, y: [0, 2] },
-      { type: 'horizontal', x: [0, 1], y: 2 },
-      { type: 'horizontal', x: [2, 6], y: 2 },
-      { type: 'horizontal', x: [1, 2], y: 3 },
-      { type: 'horizontal', x: [3, 4], y: 3 },
-      { type: 'horizontal', x: [0, 1], y: 4 },
-      { type: 'horizontal', x: [5, 8], y: 4 },
-      { type: 'horizontal', x: [3, 7], y: 5 },
-      { type: 'horizontal', x: [1, 2], y: 6 }
-    ];
-
-    createMaze(device, myWalls);
-    var ball = new Object();
-    createBall(device, ball);
+    // Temporary ball for layout
+    var tempBall = new Object();
+    createBall(device, tempBall);
     setupEventHandlers();
 
     const wgsl = device.createShaderModule({
@@ -223,7 +242,7 @@ async function start()
         vertex: {
             module: wgsl,
             entryPoint: 'shadow_vs',
-            buffers: [ball.positionBufferLayout, ball.normalBufferLayout],
+            buffers: [tempBall.positionBufferLayout, tempBall.normalBufferLayout],
         },
         primitive: {
             topology: 'triangle-list',
@@ -241,6 +260,7 @@ async function start()
     var uniformBuffers = [];
     var bindGroups = [];
     var shadowBindGroups = [];
+    var block = null;
 
     // Create a bind group layout that includes the grass texture
     const bindGroupLayout = device.createBindGroupLayout({
@@ -263,7 +283,7 @@ async function start()
         vertex: {
             module: wgsl,
             entryPoint: 'main_vs',
-            buffers: [ball.positionBufferLayout, ball.normalBufferLayout],
+            buffers: [tempBall.positionBufferLayout, tempBall.normalBufferLayout],
         },
         fragment: {
             module: wgsl,
@@ -317,17 +337,135 @@ async function start()
     lightProj = mult(M_st, lightProj); // Apply WebGPU Z-correction
     let lightViewProj = mult(lightProj, lightView);
 
-    for(let i = 0; i < rigidBodies.length; ++i)
-    {
-        uniformBuffers.push(device.createBuffer({
-            size: 5*sizeof['mat4'] + 16, // Add space for vec4 params
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        }));
+    // --- FUNCTIONS ---
+
+    window.loadLevel = async function(index) {
+        if (index < 0 || index >= levels.length) return;
+        if (index > unlockedLevelIndex) return;
+
+        currentLevelIndex = index;
+        gameWon = false;
+        document.getElementById('victory-message').style.display = 'none';
         
-        bindGroups.push(device.createBindGroup({
+        // Update UI
+        for(let i=0; i<5; i++) {
+            let btn = document.getElementById('lvl-btn-' + i);
+            if(btn) {
+                btn.classList.remove('current');
+                btn.classList.remove('locked');
+                if (i === currentLevelIndex) btn.classList.add('current');
+                if (i > unlockedLevelIndex) btn.classList.add('locked');
+            }
+        }
+
+        // Cleanup
+        for(let b of rigidBodies) {
+            physicsWorld.removeRigidBody(b.physicsBody);
+        }
+        rigidBodies = [];
+        borders = [];
+        borderLocalOffsets = [];
+        uniformBuffers = [];
+        bindGroups = [];
+        shadowBindGroups = [];
+
+        // Recreate Floor
+        block = new Object();
+        createBlock(device, block);
+
+        // Recreate Borders
+        const floorHalfX = 75 * 0.5;
+        const floorHalfZ = 75 * 0.5;
+        const floorHalfY = 2 * 0.5;
+        const t = 2; const h = 8; const yBorder = floorHalfY + h * 0.5;
+
+        for (let i = 0; i < 4; ++i) {
+            let border = new Object();
+            let local = vec3(0, yBorder, 0);
+            let scale = { x: 79, y: h, z: t };
+            if (i === 0) { local = vec3(0, yBorder, +(floorHalfZ + t * 0.5)); scale = { x: 79, y: h, z: t }; }
+            else if (i === 1) { local = vec3(0, yBorder, -(floorHalfZ + t * 0.5)); scale = { x: 79, y: h, z: t }; }
+            else if (i === 2) { local = vec3(+(floorHalfX + t * 0.5), yBorder, 0); scale = { x: t, y: h, z: 79 }; }
+            else if (i === 3) { local = vec3(-(floorHalfX + t * 0.5), yBorder, 0); scale = { x: t, y: h, z: 79 }; }
+
+            createKinematicBox(device, border, { pos: { x: 0, y: 0, z: 0 }, scale, quat: { x: 0, y: 0, z: 0, w: 1 } });
+            borders.push(border);
+            borderLocalOffsets.push(local);
+        }
+
+        // Create Maze
+        let level = levels[currentLevelIndex];
+        START_GRID = level.start;
+        END_GRID = level.end;
+        createMaze(device, level.walls);
+
+        // Update Finish Line Decal
+        createFinishDecal(device);
+
+        // Create Ball
+        var ball = new Object();
+        createBall(device, ball);
+
+        // Rebuild Buffers
+        for(let i = 0; i < rigidBodies.length; ++i)
+        {
+            uniformBuffers.push(device.createBuffer({ size: 5*sizeof['mat4'] + 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+            
+            bindGroups.push(device.createBindGroup({
+                layout: bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: uniformBuffers[i] } },
+                    { binding: 1, resource: shadowDepthView },
+                    { binding: 2, resource: shadowSampler },
+                    { binding: 3, resource: grassTexture.createView() },
+                    { binding: 4, resource: grassSampler },
+                    { binding: 5, resource: woodTexture.createView() },
+                    { binding: 6, resource: woodSampler },
+                    { binding: 7, resource: ballTexture.createView({ dimension: 'cube' }) },
+                    { binding: 8, resource: ballSampler },
+                ],
+            }));
+
+            shadowBindGroups.push(device.createBindGroup({
+                layout: shadowPipeline.getBindGroupLayout(0),
+                entries: [ { binding: 0, resource: { buffer: uniformBuffers[i] } } ],
+            }));
+
+            device.queue.writeBuffer(uniformBuffers[i], 0, flatten(mult(M_st, P)));
+            device.queue.writeBuffer(uniformBuffers[i], sizeof['mat4'], flatten(V));
+            device.queue.writeBuffer(uniformBuffers[i], 2*sizeof['mat4'], flatten(M));
+            device.queue.writeBuffer(uniformBuffers[i], 3*sizeof['mat4'], flatten(N));
+            device.queue.writeBuffer(uniformBuffers[i], 4*sizeof['mat4'], flatten(lightViewProj));
+            
+            let params = vec4(0, 0, 0, 0);
+            if (i === 0) params = vec4(1, 0, 0, 0); // Floor
+            else if (i === rigidBodies.length - 1) params = vec4(3, 0, 0, 0); // Ball
+            else params = vec4(2, 0, 0, 0); // Walls
+            device.queue.writeBuffer(uniformBuffers[i], 5*sizeof['mat4'], flatten(params));
+        }
+    };
+
+    window.changeBallTexture = async function(name) {
+        currentBallTexture = name;
+        document.getElementById('skin-tennis').classList.remove('active');
+        document.getElementById('skin-jabulani').classList.remove('active');
+        document.getElementById('skin-telstar').classList.remove('active');
+        document.getElementById('skin-basketball').classList.remove('active');
+        document.getElementById('skin-' + name).classList.add('active');
+
+        const cubemapUrls = [
+            name + '/px.png', name + '/nx.png',
+            name + '/py.png', name + '/ny.png',
+            name + '/pz.png', name + '/nz.png',
+        ];
+        ballTexture = await loadCubemap(device, cubemapUrls);
+        
+        // Update Ball BindGroup (Last Object)
+        let ballIndex = rigidBodies.length - 1;
+        bindGroups[ballIndex] = device.createBindGroup({
             layout: bindGroupLayout,
             entries: [
-                { binding: 0, resource: { buffer: uniformBuffers[i] } },
+                { binding: 0, resource: { buffer: uniformBuffers[ballIndex] } },
                 { binding: 1, resource: shadowDepthView },
                 { binding: 2, resource: shadowSampler },
                 { binding: 3, resource: grassTexture.createView() },
@@ -337,32 +475,20 @@ async function start()
                 { binding: 7, resource: ballTexture.createView({ dimension: 'cube' }) },
                 { binding: 8, resource: ballSampler },
             ],
-        }));
+        });
+    };
 
-        shadowBindGroups.push(device.createBindGroup({
-            layout: shadowPipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: uniformBuffers[i] } }
-            ],
-        }));
-
-        device.queue.writeBuffer(uniformBuffers[i], 0, flatten(mult(M_st, P)));
-        device.queue.writeBuffer(uniformBuffers[i], sizeof['mat4'], flatten(V));
-        device.queue.writeBuffer(uniformBuffers[i], 2*sizeof['mat4'], flatten(M));
-        device.queue.writeBuffer(uniformBuffers[i], 3*sizeof['mat4'], flatten(N));
-        device.queue.writeBuffer(uniformBuffers[i], 4*sizeof['mat4'], flatten(lightViewProj));
-        
-        // Write params: .x = useTexture (1.0 for floor, 2.0 for walls, 3.0 for ball, 0.0 for others)
-        let params = vec4(0, 0, 0, 0);
-        if (i === 0) {
-            params = vec4(1, 0, 0, 0); // Floor -> Grass
-        } else if (i === rigidBodies.length - 1) {
-            params = vec4(3, 0, 0, 0); // Ball -> Football
-        } else {
-            params = vec4(2, 0, 0, 0); // Walls -> Wood
+    window.nextLevel = async function() {
+        if (currentLevelIndex < levels.length - 1) {
+            unlockedLevelIndex = Math.max(unlockedLevelIndex, currentLevelIndex + 1);
+            await loadLevel(currentLevelIndex + 1);
         }
-        device.queue.writeBuffer(uniformBuffers[i], 5*sizeof['mat4'], flatten(params));
-    }
+    };
+
+    setupEventHandlers();
+    
+    // Initial Load
+    await loadLevel(0);
 
     // Use time-stamped animation
     var first = true;
@@ -383,6 +509,13 @@ async function start()
         var rawDelta = (time - time0)/1000;
         time0 = time;
         var deltaTime = Math.min(rawDelta, 0.03);
+
+        // Get Ball (Last Object)
+        if (rigidBodies.length === 0) {
+            requestAnimationFrame(animate);
+            return;
+        }
+        let ball = rigidBodies[rigidBodies.length - 1];
 
         moveBall(ball);
         moveKinematic(block, deltaTime);          // updates floor motion state
@@ -406,12 +539,15 @@ async function start()
             // Cell size is ~9.3. If we are within 4 units, we are basically in the center.
             if (dist < 4.0) {
                 gameWon = true;
-                
-                // --- YOUR WIN ACTION ---
                 document.getElementById('victory-message').style.display = 'block';
                 
-                // Optional: Reset the game?
-                // resetGame(); 
+                // Show/Hide Next Level Button
+                let nextBtn = document.getElementById('next-level-btn');
+                if (currentLevelIndex >= levels.length - 1) {
+                    nextBtn.style.display = 'none';
+                } else {
+                    nextBtn.style.display = 'block';
+                }
             }
         }
 
@@ -505,9 +641,11 @@ async function start()
             pass.setVertexBuffer(0, finishLineObj.posBuffer);
             pass.setVertexBuffer(1, finishLineObj.uvBuffer);
             
-            // Calculate MVP for the Decal
-            // MVP = P * V * Model
-            let mvp = mult(P, mult(V, finishLineObj.modelMatrix));
+            // Calculate MVP for the Decal.
+            // IMPORTANT: the main scene uses the WebGPU depth correction matrix (M_st * P),
+            // so the decal must use the same corrected projection or depth testing will be wrong.
+            const correctedP = mult(M_st, P);
+            let mvp = mult(correctedP, mult(V, finishLineObj.modelMatrix));
             
             // Upload Matrix
             device.queue.writeBuffer(textureUniformBuffer, 0, flatten(mvp));
@@ -1105,8 +1243,9 @@ function createFinishDecal(device) {
     // Since Floor is at (0,0), getGridWorldPos returns the relative offset directly.
     const pos = getGridWorldPos(END_GRID.x, END_GRID.y);
     
-    // Adjust Height: Place it slightly above the floor (Y=1.05) so it doesn't Z-fight
-    const relativeOffset = vec3(pos.x, 1.5, pos.z); 
+    // Adjust Height: Place it very slightly above the floor top (y=1.0) so it doesn't Z-fight.
+    // Keeping this tiny prevents the goal from visually floating.
+    const relativeOffset = vec3(pos.x, 1.01, pos.z);
 
     finishLineObj = {
         offset: relativeOffset, // Store offset to apply rotation later

@@ -66,7 +66,7 @@
             vsOut.uv = vec2f(0.0, 0.0);
         } else {
             // Planar Mapping for Floor/Walls
-            vsOut.uv = inPos.xz * 2; 
+            vsOut.uv = inPos.xz * 4; 
         }
 
         return vsOut;
@@ -121,24 +121,76 @@
     </script>
 </head>
 <body>
-    <h1>The Maze Game</h1>
-    
     <div id="game-container">
-        <canvas id="webgpu-canvas" width="1200" height="675">
+        <h1>WebGPU with a Physics Engine Maze Game</h1>
+        <p>By Tomas and Andrei, December 2025</p>
+        <canvas id="webgpu-canvas">
             Please use a browser that supports the HTML5 canvas element.
         </canvas>
         
+        <div id="game-menu">
+            <div class="menu-section">
+                <span class="menu-label">LEVEL</span>
+                <div class="level-selector">
+                    <button class="level-btn current" id="lvl-btn-0" onclick="loadLevel(0)">1</button>
+                    <button class="level-btn locked" id="lvl-btn-1" onclick="loadLevel(1)">2</button>
+                    <button class="level-btn locked" id="lvl-btn-2" onclick="loadLevel(2)">3</button>
+                    <button class="level-btn locked" id="lvl-btn-3" onclick="loadLevel(3)">4</button>
+                    <button class="level-btn locked" id="lvl-btn-4" onclick="loadLevel(4)">5</button>
+                </div>
+            </div>
+            <div class="menu-section">
+                <span class="menu-label">BALL SKIN</span>
+                <div class="skin-selector">
+                    <button class="skin-btn active" id="skin-tennis" onclick="changeBallTexture('tennis')">Tennis</button>
+                    <button class="skin-btn" id="skin-jabulani" onclick="changeBallTexture('jabulani')">Jabulani</button>
+                    <button class="skin-btn" id="skin-telstar" onclick="changeBallTexture('telstar')">Telstar</button>
+                    <button class="skin-btn" id="skin-basketball" onclick="changeBallTexture('basketball')">Basketball</button>
+                </div>
+            </div>
+        </div>
+
         <div id="victory-message">
             <h2>VICTORY!</h2>
             <p>You reached the finish line!</p>
+            <button id="next-level-btn" onclick="nextLevel()">Next Level</button>
         </div>
-    </div>
 
-    <div id="instructions">
-        <div class="key-group">
-            <span class="label">TABLE CONTROL</span>
-            <img src="arrowkeys.svg" class="key-icon" alt="Arrow Keys" />
+        <div id="instructions">
+            <div class="key-group">
+                <span class="label">TABLE CONTROLS: </span>
+                <img src="arrowkeys.svg" class="key-icon" alt="Arrow Keys" />
+            </div>
         </div>
     </div>
+    <script>
+    (function() {
+        const canvas = document.getElementById('webgpu-canvas');
+        if (!canvas) return;
+
+        function resizeCanvas() {
+            const dpr = Math.max(window.devicePixelRatio || 1, 1);
+            const rect = canvas.getBoundingClientRect();
+            const width = Math.max(1, Math.round(rect.width * dpr));
+            const height = Math.max(1, Math.round(rect.height * dpr));
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                // notify any renderer that listens for resizes
+                try { window.dispatchEvent(new Event('canvas-resize')); } catch(e){}
+            }
+            canvas.style.width = rect.width + 'px';
+            canvas.style.height = rect.height + 'px';
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('orientationchange', resizeCanvas);
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            resizeCanvas();
+        } else {
+            window.addEventListener('DOMContentLoaded', resizeCanvas);
+        }
+    })();
+    </script>
 </body>
 </html>
