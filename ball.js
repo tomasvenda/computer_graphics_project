@@ -143,6 +143,41 @@ async function start()
         code: document.getElementById('wgsl').text
     });
 
+    // --- Shadow Map Setup ---
+    const shadowDepthTextureSize = 2048;
+    const shadowDepthTexture = device.createTexture({
+        size: [shadowDepthTextureSize, shadowDepthTextureSize, 1],
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        format: 'depth32float',
+    });
+    const shadowDepthView = shadowDepthTexture.createView();
+
+    const shadowSampler = device.createSampler({
+        compare: 'less',
+        magFilter: 'linear',
+        minFilter: 'linear',
+    });
+
+    const shadowPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: wgsl,
+            entryPoint: 'shadow_vs',
+            buffers: [ball.positionBufferLayout, ball.normalBufferLayout],
+        },
+        primitive: {
+            topology: 'triangle-list',
+            frontFace: "ccw",
+            cullMode: "back",
+        },
+        depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: 'less',
+            format: 'depth32float',
+        },
+    });
+    // ------------------------
+
     const pipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -194,25 +229,46 @@ async function start()
     let M_st = mat4();
     M_st[2][2] = M_st[2][3] = 0.5;
 
+    // Light Matrix Calculation
+    let lightDir = normalize(vec3(-1.0, 1.75, 1.0));
+    let lightEye = scale(100, lightDir);
+    let lightView = lookAt(lightEye, vec3(0,0,0), vec3(0,1,0));
+    let lightProj = ortho(-60, 60, -60, 60, 1, 200); 
+    lightProj = mult(M_st, lightProj); // Apply WebGPU Z-correction
+    let lightViewProj = mult(lightProj, lightView);
+
     var uniformBuffers = [];
     var bindGroups = [];
+    var shadowBindGroups = [];
+
     for(let i = 0; i < rigidBodies.length; ++i)
     {
         uniformBuffers.push(device.createBuffer({
-            size: 4*sizeof['mat4'],
+            size: 5*sizeof['mat4'],
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         }));
+        
         bindGroups.push(device.createBindGroup({
             layout: pipeline.getBindGroupLayout(0),
-            entries: [{
-                binding: 0,
-                resource: { buffer: uniformBuffers[i] }
-            }],
+            entries: [
+                { binding: 0, resource: { buffer: uniformBuffers[i] } },
+                { binding: 1, resource: shadowDepthView },
+                { binding: 2, resource: shadowSampler },
+            ],
         }));
+
+        shadowBindGroups.push(device.createBindGroup({
+            layout: shadowPipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: uniformBuffers[i] } }
+            ],
+        }));
+
         device.queue.writeBuffer(uniformBuffers[i], 0, flatten(mult(M_st, P)));
         device.queue.writeBuffer(uniformBuffers[i], sizeof['mat4'], flatten(V));
         device.queue.writeBuffer(uniformBuffers[i], 2*sizeof['mat4'], flatten(M));
         device.queue.writeBuffer(uniformBuffers[i], 3*sizeof['mat4'], flatten(N));
+        device.queue.writeBuffer(uniformBuffers[i], 4*sizeof['mat4'], flatten(lightViewProj));
     }
 
     // Use time-stamped animation
@@ -259,7 +315,7 @@ async function start()
                 gameWon = true;
                 
                 // --- YOUR WIN ACTION ---
-                alert("VICTORY! You reached the finish line!");
+                document.getElementById('victory-message').style.display = 'block';
                 
                 // Optional: Reset the game?
                 // resetGame(); 
@@ -299,6 +355,29 @@ async function start()
     function render()
     {
         const encoder = device.createCommandEncoder();
+
+        // --- Shadow Pass ---
+        const shadowPass = encoder.beginRenderPass({
+            colorAttachments: [],
+            depthStencilAttachment: {
+                view: shadowDepthView,
+                depthLoadOp: "clear",
+                depthClearValue: 1.0,
+                depthStoreOp: "store",
+            }
+        });
+        shadowPass.setPipeline(shadowPipeline);
+        for (let i = 0; i < rigidBodies.length; ++i) {
+          const obj = rigidBodies[i];
+          shadowPass.setVertexBuffer(0, obj.positionBuffer);
+          shadowPass.setVertexBuffer(1, obj.normalBuffer);
+          shadowPass.setIndexBuffer(obj.indexBuffer, 'uint32');
+          shadowPass.setBindGroup(0, shadowBindGroups[i]);
+          shadowPass.drawIndexed(obj.no_of_verts);
+        }
+        shadowPass.end();
+        // -------------------
+
         const pass = encoder.beginRenderPass({
             colorAttachments: [{
                 view: msaaTexture.createView(),
@@ -523,29 +602,17 @@ function setupEventHandlers()
     case "ArrowDown":
       rotateDirection.back = 1;
       break;
-    case "s":
-      moveDirection.back = 1;
-      break;
     case "Up":
     case "ArrowUp":
       rotateDirection.forward = 1;
-      break;
-    case "w":
-      moveDirection.forward = 1;
       break;
     case "Left":
     case "ArrowLeft":
       rotateDirection.left = 1;
       break;
-    case "a":
-      moveDirection.left = 1;
-      break;
     case "Right":
     case "ArrowRight":
       rotateDirection.right = 1;
-      break;
-    case "d":
-      moveDirection.right = 1;
       break;
     }
   });
@@ -556,29 +623,17 @@ function setupEventHandlers()
     case "ArrowDown":
       rotateDirection.back = 0;
       break;
-    case "s":
-      moveDirection.back = 0;
-      break;
     case "Up":
     case "ArrowUp":
       rotateDirection.forward = 0;
-      break;
-    case "w":
-      moveDirection.forward = 0;
       break;
     case "Left":
     case "ArrowLeft":
       rotateDirection.left = 0;
       break;
-    case "a":
-      moveDirection.left = 0;
-      break;
     case "Right":
     case "ArrowRight":
       rotateDirection.right = 0;
-      break;
-    case "d":
-      moveDirection.right = 0;
       break;
     }
   });
