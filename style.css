@@ -167,6 +167,13 @@ canvas {
     gap: 5px;
 }
 
+.action-selector {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 2px;
+}
+
 .level-btn {
     width: 30px;
     height: 30px;
@@ -204,6 +211,21 @@ canvas {
     cursor: pointer;
     transition: all 0.2s;
     font-size: 0.9em;
+}
+
+.action-btn {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.9em;
+}
+
+.action-btn:hover {
+    background-color: rgba(255, 1, 1, 0.4);
 }
 
 .skin-btn:hover {

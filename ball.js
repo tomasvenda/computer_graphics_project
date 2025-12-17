@@ -373,6 +373,13 @@ async function start()
         block = new Object();
         createBlock(device, block);
 
+        // Reset board transform/tilt on every level load
+        currentTilt.x = 0;
+        currentTilt.z = 0;
+        block.position = vec3(0, 0, 0);
+        block.quaternion = new Quaternion([0, 0, 0, 1]);
+        syncKinematicToAmmo(block);
+
         // Recreate Borders
         const floorHalfX = 75 * 0.5;
         const floorHalfZ = 75 * 0.5;
@@ -483,6 +490,14 @@ async function start()
             unlockedLevelIndex = Math.max(unlockedLevelIndex, currentLevelIndex + 1);
             await loadLevel(currentLevelIndex + 1);
         }
+    };
+
+    window.resetGame = function() {
+        window.location.reload();
+    };
+
+    window.resetLevel = async function() {
+        await loadLevel(currentLevelIndex);
     };
 
     setupEventHandlers();
